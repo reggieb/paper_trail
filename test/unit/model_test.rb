@@ -1202,7 +1202,66 @@ class HasPaperTrailModelTest < ActiveSupport::TestCase
       assert_equal @widget.versions[-2].reify, @widget.previous_version
     end
   end
+  
+  context "Has one object updated via accepts_nested_attributes_for" do
+    setup do
+      @original_name = 'Original name'
+      @widget = Widget.create(:name => 'foo')
+      @wotsit = Wotsit.create(:name => @original_name, :widget_id => @widget.id)
 
+    end
+    
+    should 'have join between widget and wotsit' do
+      assert_equal @widget, @wotsit.widget
+      assert_equal @wotsit, @widget.wotsit
+    end
+    
+    # Not sure this is what should happen. If actual process makes three
+    # changes, perhaps version should reflect the three changes. However,
+    # this does highlight why tracking version over a change of a has_one
+    # object via accepts_nested_attributes_for is a problem: The change to 
+    # the wotsit occurs in two steps creating two wotsit versions.
+    should 'create one version object for each object changed' do
+      
+      assert_difference 'Version.count', 2 do
+        
+        @widget.update_attributes(
+          :name => 'New widget name', 
+          :wotsit_attributes => {
+            :name => 'New wotsit name'
+          }
+        )
+
+      end
+    end
+    
+    # This is the route of the problem. updating attributes is not updating
+    # the existing object. Instead it is creating a new object.
+    should 'not change number of objects' do
+      assert_no_difference 'Wotsit.count' do
+        @widget.update_attributes(
+          :name => 'New widget name', 
+          :wotsit_attributes => {
+            :name => 'New wotsit name'
+          }
+        )        
+      end
+    end
+    
+    should 'changeset should reflect change over whole process' do
+      new_name = 'New name'
+      @widget.update_attributes(
+        :name => 'New widget name', 
+        :wotsit_attributes => {
+          :name => 'New wotsit name'
+        }
+      )
+      changeset = @widget.wotsit.reload.versions.last.changeset
+      assert_equal({'name' => [@original_name, new_name]}, changeset)
+    end
+    
+  end
+  
   private
 
   # Updates `model`'s last version so it looks like the version was
